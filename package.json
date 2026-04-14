@@ -1,0 +1,26 @@
+{
+  "name": "termxl",
+  "version": "1.0.0",
+  "description": "Terminal-native spreadsheet — Excel in your terminal. Full formula engine, real-time recalculation, premium TUI.",
+  "main": "dist/index.js",
+  "bin": { "termxl": "dist/index.js" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["spreadsheet", "excel", "terminal", "cli", "tui", "formula", "csv", "worthdoing"],
+  "author": "WorthDoing AI <admin@worthdoing.ai>",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/Worth-Doing/termxl" },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": { "node": ">=18.0.0" }
+}
