@@ -3,17 +3,99 @@ import { getCell, getCellValue } from "../spreadsheet/sheet";
 import { colToLabel, cellKey } from "../formula/types";
 
 const ESC = "\x1b";
-const c = {
-  reset: `${ESC}[0m`, bold: `${ESC}[1m`, dim: `${ESC}[2m`, underline: `${ESC}[4m`, inverse: `${ESC}[7m`,
-  cyan: `${ESC}[36m`, green: `${ESC}[32m`, yellow: `${ESC}[33m`, blue: `${ESC}[34m`,
-  magenta: `${ESC}[35m`, red: `${ESC}[31m`, white: `${ESC}[37m`, gray: `${ESC}[90m`,
-  bgBlue: `${ESC}[44m`, bgCyan: `${ESC}[46m`, bgGray: `${ESC}[100m`,
-  bgWhite: `${ESC}[47m`, bgGreen: `${ESC}[42m`,
+
+// ── Professional Spreadsheet Color System ─────────────────────────────────
+const COLORS = {
+  reset: `${ESC}[0m`,
+  bold: `${ESC}[1m`,
+  dim: `${ESC}[2m`,
+  inverse: `${ESC}[7m`,
+
+  // Title bar
+  titleBg: `${ESC}[44m`,
+  titleFg: `${ESC}[97m`,
+  titleBrand: `${ESC}[97m${ESC}[1m`,
+
+  // Formula bar
+  nameBoxBg: `${ESC}[48;5;238m`,
+  nameBoxFg: `${ESC}[97m${ESC}[1m`,
+  fxLabel: `${ESC}[33m${ESC}[1m`,
+  fxContent: `${ESC}[37m`,
+  formulaBarBg: `${ESC}[48;5;235m`,
+  formulaBarFg: `${ESC}[37m`,
+
+  // Headers
+  headerBg: `${ESC}[48;5;236m`,
+  headerFg: `${ESC}[97m${ESC}[1m`,
+  activeHeaderBg: `${ESC}[48;5;24m`,
+  activeHeaderFg: `${ESC}[36m${ESC}[1m`,
+
+  // Grid structural
+  gridLine: `${ESC}[38;5;240m`,
+  gridLineDim: `${ESC}[38;5;237m`,
+
+  // Cell content
+  cellDefault: `${ESC}[37m`,
+  cellNumber: `${ESC}[38;5;114m`,
+  cellText: `${ESC}[37m`,
+  cellBoolean: `${ESC}[38;5;75m`,
+  cellError: `${ESC}[91m${ESC}[1m`,
+  cellFormula: `${ESC}[35m`,
+
+  // Active cell
+  activeCellBg: `${ESC}[46m`,
+  activeCellFg: `${ESC}[97m${ESC}[1m`,
+
+  // Crosshair highlight
+  crosshairBg: `${ESC}[48;5;236m`,
+
+  // Alternating rows
+  evenRowBg: `${ESC}[48;5;234m`,
+
+  // Row numbers
+  rowNumDim: `${ESC}[38;5;245m`,
+  rowNumActive: `${ESC}[36m${ESC}[1m`,
+
+  // Status bar
+  statusBg: `${ESC}[48;5;235m`,
+  statusFg: `${ESC}[37m`,
+  statusDim: `${ESC}[38;5;245m`,
+  statusKey: `${ESC}[38;5;75m`,
+
+  // Mode badges
+  modeNav: `${ESC}[42m${ESC}[97m${ESC}[1m`,
+  modeEdit: `${ESC}[43m${ESC}[30m${ESC}[1m`,
+  modeFormula: `${ESC}[45m${ESC}[97m${ESC}[1m`,
+
+  // Save indicator
+  unsaved: `${ESC}[33m`,
+  saved: `${ESC}[32m`,
+
+  // Cursor
+  cursor: `${ESC}[97m${ESC}[1m`,
 };
 
-const CELL_WIDTH = 14; // chars per cell
-const ROW_HEADER_WIDTH = 5;
+// ── Box Drawing Characters ────────────────────────────────────────────────
+const BOX = {
+  topLeft: "┏", topRight: "┓", botLeft: "┗", botRight: "┛",
+  hBold: "━", vBold: "┃",
+  topLeftLight: "┌", topRightLight: "┐", botLeftLight: "└", botRightLight: "┘",
+  h: "─", v: "│",
+  tDown: "┬", tUp: "┴", tRight: "├", tLeft: "┤", cross: "┼",
+  // Rounded corners for formula bar
+  rTopLeft: "╭", rTopRight: "╮", rBotLeft: "╰", rBotRight: "╯",
+};
 
+// ── Dynamic Cell Width ────────────────────────────────────────────────────
+function getCellWidth(termCols: number): number {
+  if (termCols > 120) return 16;
+  if (termCols < 80) return 12;
+  return 14;
+}
+
+const ROW_NUM_WIDTH = 6;
+
+// ── Screen Control ────────────────────────────────────────────────────────
 export function enterAltScreen(): void {
   process.stdout.write(`${ESC}[?1049h${ESC}[?25l`);
 }
@@ -22,134 +104,271 @@ export function exitAltScreen(): void {
   process.stdout.write(`${ESC}[?25h${ESC}[?1049l`);
 }
 
+// ── Utility Functions ─────────────────────────────────────────────────────
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function centerPad(s: string, width: number): string {
+  const len = stripAnsi(s).length;
+  const pad = Math.max(0, width - len);
+  const left = Math.floor(pad / 2);
+  const right = pad - left;
+  return " ".repeat(left) + s + " ".repeat(right);
+}
+
+function rightPad(s: string, width: number): string {
+  const len = stripAnsi(s).length;
+  return s + " ".repeat(Math.max(0, width - len));
+}
+
+function fillLine(content: string, totalWidth: number): string {
+  const len = stripAnsi(content).length;
+  return content + " ".repeat(Math.max(0, totalWidth - len));
+}
+
+// ── Main Renderer ─────────────────────────────────────────────────────────
 export function renderSpreadsheet(wb: Workbook, sheet: Sheet, vp: ViewportState): string {
-  const cols = process.stdout.columns || 80;
-  const rows = process.stdout.rows || 24;
+  const termCols = process.stdout.columns || 80;
+  const termRows = process.stdout.rows || 24;
+  const cellW = getCellWidth(termCols);
   const lines: string[] = [];
 
-  // Calculate visible columns based on terminal width
-  vp.visibleCols = Math.max(2, Math.floor((cols - ROW_HEADER_WIDTH - 2) / CELL_WIDTH));
-  vp.visibleRows = Math.max(3, rows - 5); // 5 = topbar + formulabar + colheader + statusbar + 1
+  // Calculate visible area
+  vp.visibleCols = Math.max(2, Math.floor((termCols - ROW_NUM_WIDTH - 2) / cellW));
+  vp.visibleRows = Math.max(3, termRows - 9); // reserves room for bars
 
-  // ── Top Bar ──────────────────────────────────
-  const saveStatus = wb.dirty ? `${c.yellow}\u25cf Unsaved${c.reset}` : `${c.green}\u25cf Saved${c.reset}`;
-  const sheetName = sheet.name;
-  const topLeft = `${c.cyan}${c.bold} termxl${c.reset} ${c.dim}\u2502${c.reset} ${c.bold}${wb.name}${c.reset}`;
-  const topRight = `${c.bold}${sheetName}${c.reset} ${c.dim}\u2502${c.reset} ${saveStatus} `;
-  const topPad = Math.max(0, cols - stripAnsi(topLeft).length - stripAnsi(topRight).length);
-  lines.push(topLeft + " ".repeat(topPad) + topRight);
+  const gridWidth = ROW_NUM_WIDTH + 1 + vp.visibleCols * cellW + 1;
+  const fullWidth = Math.max(gridWidth, termCols);
 
-  // ── Formula Bar ──────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  // 1. TITLE BAR — premium solid background
+  // ════════════════════════════════════════════════════════════════════════
+  const titleBorder = `  ${COLORS.gridLine}${BOX.topLeft}${BOX.hBold.repeat(fullWidth - 4)}${BOX.topRight}${COLORS.reset}`;
+  lines.push(titleBorder);
+
+  const saveIndicator = wb.dirty
+    ? `${COLORS.unsaved}\u25cf Unsaved${COLORS.reset}${COLORS.titleBg}${COLORS.titleFg}`
+    : `${COLORS.saved}\u25cf Saved${COLORS.reset}${COLORS.titleBg}${COLORS.titleFg}`;
+  const titleLeft = `  ${COLORS.titleBrand}termxl${COLORS.reset}${COLORS.titleBg}${COLORS.titleFg}   ${wb.name}`;
+  const titleRight = `${sheet.name}    ${saveIndicator}  `;
+  const titlePad = Math.max(0, fullWidth - 4 - stripAnsi(titleLeft).length - stripAnsi(titleRight).length);
+  const titleLine = `  ${COLORS.gridLine}${BOX.vBold}${COLORS.reset}${COLORS.titleBg}${COLORS.titleFg}${titleLeft}${" ".repeat(titlePad)}${titleRight}${COLORS.reset}${COLORS.gridLine}${BOX.vBold}${COLORS.reset}`;
+  lines.push(titleLine);
+
+  const titleBorderBot = `  ${COLORS.gridLine}${BOX.botLeft}${BOX.hBold.repeat(fullWidth - 4)}${BOX.botRight}${COLORS.reset}`;
+  lines.push(titleBorderBot);
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 2. FORMULA BAR — name box + fx indicator + content
+  // ════════════════════════════════════════════════════════════════════════
   const activeLabel = `${colToLabel(vp.activeCol)}${vp.activeRow}`;
   const activeCell = getCell(sheet, vp.activeRow, vp.activeCol);
   const rawContent = activeCell?.raw || "";
-  const formulaDisplay = vp.mode === "EDIT" || vp.mode === "FORMULA" ? vp.editBuffer : rawContent;
+  const isEditing = vp.mode === "EDIT" || vp.mode === "FORMULA";
+  const formulaDisplay = isEditing ? vp.editBuffer : rawContent;
+  const cursorChar = isEditing ? `${COLORS.cursor}\u2588${COLORS.reset}` : "";
 
-  const nameBox = `${c.dim} ${activeLabel.padEnd(6)}${c.reset}`;
-  const fxLabel = `${c.yellow}${c.bold}fx${c.reset}`;
-  const fxContent = ` ${formulaDisplay}`;
-  const fbPad = Math.max(0, cols - stripAnsi(nameBox).length - stripAnsi(fxLabel).length - fxContent.length - 3);
-  lines.push(`${nameBox}${c.dim}\u2502${c.reset} ${fxLabel}${fxContent}${" ".repeat(fbPad)}`);
+  const nameBoxInner = ` ${activeLabel} `;
+  const nameBoxPadded = centerPad(nameBoxInner, 6);
+  const nameBox = `  ${COLORS.gridLine}${BOX.rTopLeft}${BOX.h} ${COLORS.nameBoxBg}${COLORS.nameBoxFg}${nameBoxPadded}${COLORS.reset} ${COLORS.gridLine}${BOX.rTopRight}${COLORS.reset}  ${COLORS.fxLabel}fx${COLORS.reset} ${COLORS.gridLine}${BOX.v}${COLORS.reset} ${COLORS.fxContent}${formulaDisplay}${cursorChar}${COLORS.reset}`;
+  const nameBoxBot = `  ${COLORS.gridLine}${BOX.rBotLeft}${BOX.h.repeat(8)}${BOX.rBotRight}${COLORS.reset}    ${COLORS.gridLine}${BOX.v}${COLORS.reset}`;
 
-  // ── Separator ────────────────────────────────
-  lines.push(c.dim + "\u2500".repeat(cols) + c.reset);
+  lines.push(nameBox);
+  lines.push(nameBoxBot);
 
-  // ── Column Headers ───────────────────────────
-  let colHeader = c.bold + " ".repeat(ROW_HEADER_WIDTH) + c.dim + "\u2502" + c.reset;
+  // ════════════════════════════════════════════════════════════════════════
+  // 3. COLUMN HEADERS — bold, centered, with grid lines
+  // ════════════════════════════════════════════════════════════════════════
+  // Top border of header
+  let headerTopBorder = `  ${COLORS.gridLine}${BOX.topLeftLight}${BOX.h.repeat(ROW_NUM_WIDTH)}`;
+  for (let ci = 0; ci < vp.visibleCols; ci++) {
+    headerTopBorder += `${BOX.tDown}${BOX.h.repeat(cellW - 1)}`;
+  }
+  headerTopBorder += `${BOX.topRightLight}${COLORS.reset}`;
+  lines.push(headerTopBorder);
+
+  // Header content
+  let headerLine = `  ${COLORS.gridLine}${BOX.v}${COLORS.reset}${COLORS.headerBg}${" ".repeat(ROW_NUM_WIDTH)}${COLORS.reset}`;
   for (let ci = 0; ci < vp.visibleCols; ci++) {
     const colNum = vp.startCol + ci;
     const label = colToLabel(colNum);
-    const isActive = colNum === vp.activeCol;
-    const padded = centerPad(label, CELL_WIDTH - 1);
-    if (isActive) {
-      colHeader += `${c.cyan}${c.bold}${padded}${c.reset}${c.dim}\u2502${c.reset}`;
+    const isActiveCol = colNum === vp.activeCol;
+    const padded = centerPad(label, cellW - 1);
+    if (isActiveCol) {
+      headerLine += `${COLORS.gridLine}${BOX.v}${COLORS.reset}${COLORS.activeHeaderBg}${COLORS.activeHeaderFg}${padded}${COLORS.reset}`;
     } else {
-      colHeader += `${c.dim}${padded}\u2502${c.reset}`;
+      headerLine += `${COLORS.gridLine}${BOX.v}${COLORS.reset}${COLORS.headerBg}${COLORS.headerFg}${padded}${COLORS.reset}`;
     }
   }
-  lines.push(colHeader);
+  headerLine += `${COLORS.gridLine}${BOX.v}${COLORS.reset}`;
+  lines.push(headerLine);
 
-  // ── Separator ────────────────────────────────
-  let sepLine = c.dim + "\u2500".repeat(ROW_HEADER_WIDTH) + "\u253c";
+  // Header bottom separator
+  let headerSep = `  ${COLORS.gridLine}${BOX.tRight}${BOX.h.repeat(ROW_NUM_WIDTH)}`;
   for (let ci = 0; ci < vp.visibleCols; ci++) {
-    sepLine += "\u2500".repeat(CELL_WIDTH - 1) + "\u253c";
+    headerSep += `${BOX.cross}${BOX.h.repeat(cellW - 1)}`;
   }
-  lines.push(sepLine + c.reset);
+  headerSep += `${BOX.tLeft}${COLORS.reset}`;
+  lines.push(headerSep);
 
-  // ── Grid Rows ────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  // 4. GRID ROWS — proper borders, crosshair, alternating backgrounds
+  // ════════════════════════════════════════════════════════════════════════
   for (let ri = 0; ri < vp.visibleRows; ri++) {
     const rowNum = vp.startRow + ri;
     const isActiveRow = rowNum === vp.activeRow;
+    const isEvenRow = ri % 2 === 1;
 
-    // Row header
-    let rowLine = "";
+    // Determine row background
+    const rowBg = isActiveRow ? COLORS.crosshairBg : isEvenRow ? COLORS.evenRowBg : "";
+
+    // Row number
+    let rowLine = "  ";
+    const rowNumStr = String(rowNum).padStart(ROW_NUM_WIDTH - 1);
     if (isActiveRow) {
-      rowLine += `${c.cyan}${c.bold}${String(rowNum).padStart(ROW_HEADER_WIDTH - 1)} ${c.reset}${c.dim}\u2502${c.reset}`;
+      rowLine += `${COLORS.gridLine}${BOX.v}${COLORS.reset}${rowBg}${COLORS.rowNumActive} ${rowNumStr}${COLORS.reset}`;
     } else {
-      rowLine += `${c.dim}${String(rowNum).padStart(ROW_HEADER_WIDTH - 1)} \u2502${c.reset}`;
+      rowLine += `${COLORS.gridLine}${BOX.v}${COLORS.reset}${rowBg}${COLORS.rowNumDim} ${rowNumStr}${COLORS.reset}`;
     }
 
     // Cells
     for (let ci = 0; ci < vp.visibleCols; ci++) {
       const colNum = vp.startCol + ci;
       const isActive = rowNum === vp.activeRow && colNum === vp.activeCol;
+      const isInCrosshair = (rowNum === vp.activeRow || colNum === vp.activeCol) && !isActive;
 
       const cell = getCell(sheet, rowNum, colNum);
       let display = "";
 
-      if (isActive && (vp.mode === "EDIT" || vp.mode === "FORMULA")) {
+      if (isActive && isEditing) {
         display = vp.editBuffer;
       } else {
         display = cell?.display || "";
       }
 
-      // Truncate and pad
-      const truncated = display.slice(0, CELL_WIDTH - 3);
+      // Truncate to fit cell
+      const maxContent = cellW - 3;
+      const truncated = display.length > maxContent ? display.slice(0, maxContent - 1) + "\u2026" : display;
 
-      // Alignment: numbers right, text left, errors left
-      let cellContent: string;
+      // Determine alignment and color
       const val = cell?.value;
+      let cellContent: string;
+      let contentColor = COLORS.cellDefault;
+
       if (val && val.kind === "number") {
-        cellContent = truncated.padStart(CELL_WIDTH - 2);
+        contentColor = COLORS.cellNumber;
+        cellContent = truncated.padStart(cellW - 3);
       } else if (val && val.kind === "error") {
-        cellContent = `${c.red}${truncated.padEnd(CELL_WIDTH - 2)}${c.reset}`;
+        contentColor = COLORS.cellError;
+        cellContent = truncated.padEnd(cellW - 3);
+      } else if (val && val.kind === "boolean") {
+        contentColor = COLORS.cellBoolean;
+        cellContent = centerPad(truncated, cellW - 3);
       } else {
-        cellContent = truncated.padEnd(CELL_WIDTH - 2);
+        contentColor = COLORS.cellText;
+        cellContent = truncated.padEnd(cellW - 3);
       }
 
+      // Render cell with styling
       if (isActive) {
-        rowLine += `${c.inverse}${c.cyan} ${cellContent} ${c.reset}${c.dim}\u2502${c.reset}`;
+        // Active cell: bold inverse cyan — must POP
+        rowLine += `${COLORS.gridLine}${BOX.v}${COLORS.reset}${COLORS.activeCellBg}${COLORS.activeCellFg} ${cellContent} ${COLORS.reset}`;
+      } else if (isInCrosshair) {
+        // Crosshair: subtle dark background
+        rowLine += `${COLORS.gridLineDim}${BOX.v}${COLORS.reset}${COLORS.crosshairBg}${contentColor} ${cellContent} ${COLORS.reset}`;
       } else {
-        rowLine += ` ${cellContent} ${c.dim}\u2502${c.reset}`;
+        // Normal cell
+        const bg = isEvenRow ? COLORS.evenRowBg : "";
+        rowLine += `${COLORS.gridLineDim}${BOX.v}${COLORS.reset}${bg}${contentColor} ${cellContent} ${COLORS.reset}`;
       }
     }
 
+    // Right border
+    rowLine += `${COLORS.gridLine}${BOX.v}${COLORS.reset}`;
     lines.push(rowLine);
   }
 
-  // ── Status Bar ───────────────────────────────
-  lines.push(c.dim + "\u2500".repeat(cols) + c.reset);
+  // ════════════════════════════════════════════════════════════════════════
+  // 5. GRID BOTTOM BORDER
+  // ════════════════════════════════════════════════════════════════════════
+  let gridBottom = `  ${COLORS.gridLine}${BOX.botLeftLight}${BOX.h.repeat(ROW_NUM_WIDTH)}`;
+  for (let ci = 0; ci < vp.visibleCols; ci++) {
+    gridBottom += `${BOX.tUp}${BOX.h.repeat(cellW - 1)}`;
+  }
+  gridBottom += `${BOX.botRightLight}${COLORS.reset}`;
+  lines.push(gridBottom);
 
-  const modeDisplay = vp.mode === "NAVIGATION" ? `${c.green}NAV${c.reset}` : vp.mode === "EDIT" ? `${c.yellow}EDIT${c.reset}` : `${c.magenta}FORMULA${c.reset}`;
+  // ════════════════════════════════════════════════════════════════════════
+  // 6. STATUS BAR — two-line info bar with rounded border
+  // ════════════════════════════════════════════════════════════════════════
+  const statusWidth = fullWidth - 4;
+
+  // Status top border
+  lines.push(`  ${COLORS.gridLine}${BOX.rTopLeft}${BOX.h.repeat(statusWidth)}${BOX.rTopRight}${COLORS.reset}`);
+
+  // Status line 1: cell info + mode + sheet info
   const cellVal = activeCell?.value;
-  const valDisplay = cellVal?.kind === "number" ? String(cellVal.value) : cellVal?.kind === "string" ? `"${cellVal.value}"` : cellVal?.kind === "error" ? `${c.red}${activeCell?.display}${c.reset}` : cellVal?.kind === "boolean" ? String(cellVal.value) : "";
-  const typeDisplay = cellVal?.kind || "blank";
+  const valDisplay = cellVal?.kind === "number"
+    ? String(cellVal.value)
+    : cellVal?.kind === "string"
+      ? `"${cellVal.value}"`
+      : cellVal?.kind === "error"
+        ? `${COLORS.cellError}${activeCell?.display}${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg}`
+        : cellVal?.kind === "boolean"
+          ? String(cellVal.value)
+          : "";
 
-  const statusLeft = ` ${c.dim}Value:${c.reset} ${valDisplay}  ${c.dim}Type:${c.reset} ${typeDisplay}  ${c.dim}Mode:${c.reset} ${modeDisplay}`;
-  const statusRight = `${c.dim}Arrows:move  Enter:edit  =:formula  Esc:cancel  Ctrl+S:save  Ctrl+Q:quit${c.reset} `;
-  const statusPad = Math.max(0, cols - stripAnsi(statusLeft).length - stripAnsi(statusRight).length);
-  lines.push(statusLeft + " ".repeat(statusPad) + statusRight);
+  const typeStr = cellVal?.kind || "blank";
 
+  // Mode badge
+  let modeBadge: string;
+  if (vp.mode === "NAVIGATION") {
+    modeBadge = `${COLORS.modeNav} NAV ${COLORS.reset}`;
+  } else if (vp.mode === "EDIT") {
+    modeBadge = `${COLORS.modeEdit} EDIT ${COLORS.reset}`;
+  } else {
+    modeBadge = `${COLORS.modeFormula} FORMULA ${COLORS.reset}`;
+  }
+
+  const sheetCount = wb.sheets.length;
+  const sheetIdx = wb.activeSheetIndex + 1;
+  const cellCount = `${sheet.maxRow}\u00d7${sheet.maxCol} cells`;
+  const saveStr = wb.dirty
+    ? `${COLORS.unsaved}\u25cf Unsaved${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg}`
+    : `${COLORS.saved}\u25cf Saved${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg}`;
+
+  const s1Left = `  ${activeLabel}: ${valDisplay}`;
+  const s1Mid = `  ${COLORS.statusDim}${typeStr}${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg}  ${COLORS.gridLine}${BOX.v}${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg}  ${modeBadge}${COLORS.statusBg}${COLORS.statusFg}  ${COLORS.gridLine}${BOX.v}${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg}  Sheet ${sheetIdx}/${sheetCount}  ${COLORS.gridLine}${BOX.v}${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg}  ${cellCount}  ${COLORS.gridLine}${BOX.v}${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg}  ${saveStr}`;
+  const status1Content = s1Left + s1Mid;
+  const status1Visible = stripAnsi(status1Content).length;
+  const status1Pad = Math.max(0, statusWidth - status1Visible);
+  const statusLine1 = `  ${COLORS.gridLine}${BOX.v}${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg}${status1Content}${" ".repeat(status1Pad)}${COLORS.reset}${COLORS.gridLine}${BOX.v}${COLORS.reset}`;
+  lines.push(statusLine1);
+
+  // Status separator
+  lines.push(`  ${COLORS.gridLine}${BOX.tRight}${BOX.h.repeat(statusWidth)}${BOX.tLeft}${COLORS.reset}`);
+
+  // Status line 2: keyboard shortcuts
+  const shortcuts = [
+    `${COLORS.statusKey}\u2191\u2193\u2190\u2192${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg} move`,
+    `${COLORS.statusKey}Enter${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg} edit`,
+    `${COLORS.statusKey}=${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg} formula`,
+    `${COLORS.statusKey}Del${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg} clear`,
+    `${COLORS.statusKey}^S${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg} save`,
+    `${COLORS.statusKey}^Q${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg} quit`,
+  ];
+  const shortcutsStr = `  ${shortcuts.join("   ")}`;
+  const s2Visible = stripAnsi(shortcutsStr).length;
+  const s2Pad = Math.max(0, statusWidth - s2Visible);
+  const statusLine2 = `  ${COLORS.gridLine}${BOX.v}${COLORS.reset}${COLORS.statusBg}${COLORS.statusFg}${shortcutsStr}${" ".repeat(s2Pad)}${COLORS.reset}${COLORS.gridLine}${BOX.v}${COLORS.reset}`;
+  lines.push(statusLine2);
+
+  // Status bottom border
+  lines.push(`  ${COLORS.gridLine}${BOX.rBotLeft}${BOX.h.repeat(statusWidth)}${BOX.rBotRight}${COLORS.reset}`);
+
+  // ════════════════════════════════════════════════════════════════════════
+  // Compose final output — clear screen & home cursor
+  // ════════════════════════════════════════════════════════════════════════
   return `${ESC}[2J${ESC}[H` + lines.join("\n");
-}
-
-function stripAnsi(s: string): string {
-  return s.replace(/\x1b\[[0-9;]*m/g, "");
-}
-
-function centerPad(s: string, width: number): string {
-  const pad = Math.max(0, width - s.length);
-  const left = Math.floor(pad / 2);
-  const right = pad - left;
-  return " ".repeat(left) + s + " ".repeat(right);
 }
